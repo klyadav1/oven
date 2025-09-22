@@ -1,66 +1,43 @@
+import streamlit as st
 import requests
-import pandas as pd
-import numpy as np
-from sklearn.linear_model import LinearRegression
 import pickle
+import pandas as pd
 
-# Step 1: Get current temperature from OpenWeatherMap API
+# Load trained model
+def load_model():
+    with open('oven_startup_model.pkl', 'rb') as f:
+        return pickle.load(f)
+
+# Get current temperature from OpenWeatherMap
 def get_current_temperature(city="Pune"):
     api_key = "949ab7227e4144d0d493edad198016dd"
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
-    
     try:
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
-        temp = data['main']['temp']
-        print(f"Current temperature in {city}: {temp}°C")
-        return temp
-    except requests.exceptions.RequestException as e:
-        print(f"API request failed: {e}")
+        return data['main']['temp']
+    except:
         return None
 
-# Step 2: Train ML model using historical oven data
-def train_model():
-    data = {
-        'start_temp': [33.45, 34.10, 37.48, 34.92, 33.72, 32.92],
-        'heating_rate': [4.60, 3.71, 1.86, 0.89, 0.96, 1.82],
-        'time_to_target': [27.5, 42.0, 82.0, 174.5, 163.5, 86.5]
-    }
-    df = pd.DataFrame(data)
-    X = df[['start_temp', 'heating_rate']]
-    y = df['time_to_target']
+# Predict startup time
+def predict_startup_time(model, start_temp, heating_rate):
+    X = pd.DataFrame([[start_temp, heating_rate]], columns=['start_temp', 'heating_rate'])
+    prediction = model.predict(X)
+    return prediction[0]
 
-    model = LinearRegression()
-    model.fit(X, y)
+# Streamlit UI
+st.title("Industrial Oven Startup Time Predictor 🔥")
 
-    with open('oven_startup_model.pkl', 'wb') as f:
-        pickle.dump(model, f)
-    print("Model trained and saved as oven_startup_model.pkl")
+city = st.text_input("Enter City for Weather Temperature", value="Pune")
+heating_rate = st.number_input("Enter Heating Rate (°C/min)", min_value=0.1, max_value=10.0, value=2.0)
 
-# Step 3: Predict startup time using live temperature
-def predict_startup_time(start_temp, heating_rate):
-    try:
-        with open('oven_startup_model.pkl', 'rb') as f:
-            model = pickle.load(f)
-        prediction = model.predict([[start_temp, heating_rate]])
-        print(f"Predicted startup time: {prediction[0]:.2f} minutes")
-        return prediction[0]
-    except FileNotFoundError:
-        print("Model file not found. Please train the model first.")
-        return None
-
-# Step 4: Create requirements.txt
-def create_requirements():
-    with open('requirements.txt', 'w') as f:
-        f.write("requests\npandas\nnumpy\nscikit-learn\n")
-    print("requirements.txt created")
-
-# Main Execution
-if __name__ == "__main__":
-    train_model()
-    weather_temp = get_current_temperature(city="Pune")
-    if weather_temp is not None:
-        heating_rate = 2.0  # Example value, can be fetched from PLC
-        predict_startup_time(start_temp=weather_temp, heating_rate=heating_rate)
-    create_requirements()
+if st.button("Predict Startup Time"):
+    temp = get_current_temperature(city)
+    if temp is None:
+        st.error("Failed to fetch temperature from API.")
+    else:
+        model = load_model()
+        time = predict_startup_time(model, temp, heating_rate)
+        st.success(f"Predicted Startup Time: {time:.2f} minutes")
+        st.write(f"Current Temperature in {city}: {temp}°C")
