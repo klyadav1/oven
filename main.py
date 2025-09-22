@@ -7,7 +7,6 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 import requests
 import joblib
-import glob
 import os
 from datetime import datetime
 import streamlit as st
@@ -59,7 +58,7 @@ def get_weather():
             "conditions": "clear"
         }
 
-# 2. Data Preparation
+# 2. Data Preparation - FIXED
 def prepare_training_data(uploaded_files):
     """Process multiple CSV files into training data"""
     dfs = []
@@ -90,18 +89,32 @@ def prepare_training_data(uploaded_files):
                 
                 if col in df.columns:
                     target_temp = SENSOR_TARGETS[sensor]
-                    try:
-                        reach_time = df[df[col] >= target_temp].iloc[0]
-                        
-                        dfs.append(pd.DataFrame({
-                            'sensor': [sensor],
-                            'start_temp': [df[col].iloc[0]],
-                            'max_temp': [df[col].max()],
-                            'time_to_target': [(reach_time['DateTime'] - df['DateTime'].iloc[0]).total_seconds() / 60],
-                            'date': [df['DateTime'].iloc[0]]
-                        }))
-                    except IndexError:
-                        continue
+                    start_temp = df[col].iloc[0]
+                    
+                    # FIX: Check if starting temperature is already at or above target
+                    if start_temp >= target_temp:
+                        # If already at target, time is 0
+                        time_to_target = 0
+                    else:
+                        # Find when temperature reaches target
+                        try:
+                            reach_rows = df[df[col] >= target_temp]
+                            if len(reach_rows) > 0:
+                                reach_time = reach_rows.iloc[0]
+                                time_to_target = (reach_time['DateTime'] - df['DateTime'].iloc[0]).total_seconds() / 60
+                            else:
+                                # If never reaches target, skip this file for this sensor
+                                continue
+                        except IndexError:
+                            continue
+                    
+                    dfs.append(pd.DataFrame({
+                        'sensor': [sensor],
+                        'start_temp': [start_temp],
+                        'max_temp': [df[col].max()],
+                        'time_to_target': [time_to_target],
+                        'date': [df['DateTime'].iloc[0]]
+                    }))
                         
         except Exception as e:
             st.error(f"Error processing {file.name}: {str(e)}")
@@ -120,7 +133,7 @@ def create_features(df):
     for _, row in df.iterrows():
         # For training, we'll use placeholder weather
         weather = {
-            'temp': 25.0,  # Placeholder - replace with historical data if available
+            'temp': 25.0,
             'humidity': 60,
             'conditions': 'clear'
         }
@@ -167,10 +180,15 @@ def train_model(features):
     joblib.dump((model, feature_names), MODEL_PATH)
     return model, feature_names
 
-# 5. Prediction Function
+# 5. Prediction Function - FIXED
 def predict_heating_time(sensor, current_temp):
     """Predict time needed to reach target temp using current weather"""
     try:
+        # FIX: If current temperature is already at or above target, return 0
+        target_temp = SENSOR_TARGETS[sensor]
+        if current_temp >= target_temp:
+            return 0
+        
         model, features = joblib.load(MODEL_PATH)
         weather = get_weather()
         
@@ -179,10 +197,10 @@ def predict_heating_time(sensor, current_temp):
             'start_temp': [current_temp],
             'ambient_temp': [weather['temp']],
             'humidity': [weather['humidity']],
-            'target_temp': [SENSOR_TARGETS[sensor]],
+            'target_temp': [target_temp],
             'sensor_WU311': [0],
             'sensor_WU312': [0],
-            'sensor_WU314': [0],
+            'sensor_WWU314': [0],
             'sensor_WU321': [0],
             'sensor_WU322': [0],
             'sensor_WU323': [0]
@@ -194,7 +212,9 @@ def predict_heating_time(sensor, current_temp):
         # Ensure we only use features the model was trained with
         final_input = input_data[features]
         
-        return model.predict(final_input)[0]
+        prediction = model.predict(final_input)[0]
+        return max(0, prediction)  # Ensure prediction is not negative
+        
     except Exception as e:
         st.error(f"Prediction error: {str(e)}")
         return None
@@ -215,6 +235,8 @@ def main():
             
         if not oven_data.empty:
             st.success(f"Processed {len(oven_data)} training samples")
+            st.dataframe(oven_data.head())
+            
             features = create_features(oven_data)
             
             if st.button("Train Model"):
@@ -236,6 +258,10 @@ def main():
     with col2:
         sensor_type = st.selectbox("Select sensor", options=list(SENSOR_TARGETS.keys()))
     
+    # Show target temperature
+    target_temp = SENSOR_TARGETS[sensor_type]
+    st.info(f"Target temperature for {sensor_type}: {target_temp}°C")
+    
     if st.button("Predict Heating Time"):
         if not os.path.exists(MODEL_PATH):
             st.error("Please train the model first by uploading CSV files")
@@ -248,12 +274,15 @@ def main():
                 
                 if prediction is not None:
                     weather = get_weather()
-                    st.success(f"**Predicted time to target: {prediction + 10:.1f} minutes**")
+                    
+                    if prediction == 0:
+                        st.success("**Oven has already reached target temperature!**")
+                    else:
+                        st.success(f"**Predicted time to target: {prediction:.1f} minutes**")
+                    
                     st.info(f"Current weather in {LOCATION}: {weather['temp']}°C, {weather['humidity']}% humidity")
                     
                     # Display additional info
-                    target_temp = SENSOR_TARGETS[sensor_type]
-                    st.write(f"Target temperature for {sensor_type}: {target_temp}°C")
                     st.write(f"Current temperature: {current_oven_temp}°C")
                     st.write(f"Temperature difference: {target_temp - current_oven_temp:.1f}°C")
 
