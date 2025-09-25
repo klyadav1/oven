@@ -11,27 +11,41 @@ from datetime import datetime
 import streamlit as st
 import pandas as pd
 
-st.title("Oven Heat-up Time Predictor")
+import streamlit as st
+import pandas as pd
 
-# Example: Loading CSV
-df = pd.read_csv("./data/merged_oven_data.csv")
-st.write("Data preview:", df.head())
+# Dummy prediction function — replace with your actual model logic
+def predict_startup_times(current_temp):
+    # Example output — replace with real predictions
+    return [
+        ["Zone 1", round(60 - current_temp * 0.2, 2), "2025-09-25 14:30"],
+        ["Zone 2", round(55 - current_temp * 0.18, 2), "2025-09-25 14:28"],
+        ["Zone 3", round(50 - current_temp * 0.15, 2), "2025-09-25 14:25"]
+    ]
 
-# Example: Button to trigger model training or prediction
-if st.button("Train Model"):
-    st.write("Training started...")
-    # Call your training functions here
-    st.write("Model trained and saved.")
-    # Streamlit UI
-st.title("Oven Heat-Up Time Prediction Dashboard")
+# Title
+st.title("🔥 Oven Heat-Up Time Prediction Dashboard")
 
-current_temp = st.number_input("Enter current oven temperature (°C):", min_value=0.0, max_value=300.0, value=25.0)
+# Input
+current_temp = st.number_input(
+    label="Enter current oven temperature (°C):",
+    min_value=0.0,
+    max_value=300.0,
+    value=25.0,
+    step=0.5,
+    format="%.1f"
+)
 
-if st.button("Predict Startup Time"):
-    results = predict_startup_times(current_temp)
-    st.write("Predicted Startup Times for Zones:")
-    df_results = pd.DataFrame(results, columns=["Sensor", "Predicted Time (minutes)", "Expected Date-Time"])
-    st.dataframe(df_results)
+# Prediction trigger
+if st.button("🔍 Predict Startup Time"):
+    with st.spinner("Calculating predictions..."):
+        results = predict_startup_times(current_temp)
+        if results:
+            df_results = pd.DataFrame(results, columns=["Sensor", "Predicted Time (minutes)", "Expected Date-Time"])
+            st.success("✅ Prediction complete!")
+            st.dataframe(df_results, use_container_width=True)
+        else:
+            st.warning("⚠️ No prediction results returned. Please check input or model.")
 
 # Configuration
 WEATHER_API_KEY = "18a9e977d32e4a7a8e961308252106"
