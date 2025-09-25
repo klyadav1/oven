@@ -22,6 +22,16 @@ if st.button("Train Model"):
     st.write("Training started...")
     # Call your training functions here
     st.write("Model trained and saved.")
+    # Streamlit UI
+st.title("Oven Heat-Up Time Prediction Dashboard")
+
+current_temp = st.number_input("Enter current oven temperature (°C):", min_value=0.0, max_value=300.0, value=25.0)
+
+if st.button("Predict Startup Time"):
+    results = predict_startup_times(current_temp)
+    st.write("Predicted Startup Times for Zones:")
+    df_results = pd.DataFrame(results, columns=["Sensor", "Predicted Time (minutes)", "Expected Date-Time"])
+    st.dataframe(df_results)
 
 # Configuration
 WEATHER_API_KEY = "18a9e977d32e4a7a8e961308252106"
