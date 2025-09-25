@@ -1,59 +1,16 @@
 import pandas as pd
-import numpy as np
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 import requests
 import joblib
 from datetime import datetime
-import streamlit as st
-import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_absolute_error
 
-import streamlit as st
-import pandas as pd
-
-# Dummy prediction function — replace with your actual model logic
-def predict_startup_times(current_temp):
-    # Example output — replace with real predictions
-    return [
-        ["Zone 1", round(60 - current_temp * 0.2, 2), "2025-09-25 14:30"],
-        ["Zone 2", round(55 - current_temp * 0.18, 2), "2025-09-25 14:28"],
-        ["Zone 3", round(50 - current_temp * 0.15, 2), "2025-09-25 14:25"]
-    ]
-
-# Title
-st.title("🔥 Oven Heat-Up Time Prediction Dashboard")
-
-# Input
-current_temp = st.number_input(
-    label="Enter current oven temperature (°C):",
-    min_value=0.0,
-    max_value=300.0,
-    value=25.0,
-    step=0.5,
-    format="%.1f"
-)
-
-# Prediction trigger
-if st.button("🔍 Predict Startup Time"):
-    with st.spinner("Calculating predictions..."):
-        results = predict_startup_times(current_temp)
-        if results:
-            df_results = pd.DataFrame(results, columns=["Sensor", "Predicted Time (minutes)", "Expected Date-Time"])
-            st.success("✅ Prediction complete!")
-            st.dataframe(df_results, use_container_width=True)
-        else:
-            st.warning("⚠️ No prediction results returned. Please check input or model.")
-
-# Configuration
-WEATHER_API_KEY = "18a9e977d32e4a7a8e961308252106"
+WEATHER_API_KEY = "your_api_key_here"
 LOCATION = "Pune"
-MODEL_PATH = "oven_time_predictor.pkl"
-CSV_PATH = "data/merged_oven_data.csv"
-
-# Required columns
+MODEL_PATH = "model/oven_time_predictor.pkl"
 COLUMNS = ['Date', 'Time', 'WU311', 'WU312', 'WU314', 'WU321', 'WU322', 'WU323']
 SENSOR_TARGETS = {
     'WU311': 160,
@@ -64,72 +21,49 @@ SENSOR_TARGETS = {
     'WU323': 190
 }
 
-# 1. Weather API
 def get_weather():
-    url = f"http://api.weatherapi.com/v1/current.json?key={WEATHER_API_KEY}&q={LOCATION}"
-    response = requests.get(url)
-    data = response.json()
-    return {
-        "temp": data["current"]["temp_c"],
-        "humidity": data["current"]["humidity"],
-        "conditions": data["current"]["condition"]["text"]
-    }
-
-# 2. Prepare training data
-def prepare_training_data(csv_file):
     try:
-        df = pd.read_csv(csv_file, encoding='utf-8')
-    except Exception as e:
-        print("Error reading CSV:", e)
-        return pd.DataFrame()
-
-    df.columns = df.columns.str.strip()
-    missing_cols = [col for col in COLUMNS if col not in df.columns]
-    if missing_cols:
-        print("Missing columns in", csv_file, ":", missing_cols)
-        return pd.DataFrame()
-
-    df['Time'] = df['Time'].astype(str).str.strip()
-
-    # ✅ Specify format to avoid warning
-    try:
-        df['DateTime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'], format='%d-%b-%y %I:%M:%S %p', errors='coerce')
+        url = f"http://api.weatherapi.com/v1/current.json?key={WEATHER_API_KEY}&q={LOCATION}"
+        response = requests.get(url)
+        data = response.json()
+        return {
+            "temp": data["current"]["temp_c"],
+            "humidity": data["current"]["humidity"],
+            "conditions": data["current"]["condition"]["text"]
+        }
     except Exception:
-        df['DateTime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'], errors='coerce')
+        return {"temp": 25.0, "humidity": 60, "conditions": "Unknown"}
 
+def prepare_training_data(csv_file):
+    df = pd.read_csv(csv_file, encoding='utf-8')
+    df.columns = df.columns.str.strip()
+    df['Time'] = df['Time'].astype(str).str.strip()
+    df['DateTime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'], errors='coerce')
     df.dropna(subset=['DateTime'], inplace=True)
 
-    print("Sensor max temperatures:")
+    dfs = []
     for sensor in SENSOR_TARGETS:
         if sensor in df.columns:
-            print(f"{sensor}: {df[sensor].max()} deg C")
-
-    dfs = []
-    for sensor in SENSOR_TARGETS.keys():
-        col = sensor
-        if col in df.columns:
             target_temp = SENSOR_TARGETS[sensor]
             try:
-                reach_time = df[df[col] >= target_temp].iloc[0]
+                reach_time = df[df[sensor] >= target_temp].iloc[0]
                 dfs.append(pd.DataFrame({
                     'sensor': [sensor],
-                    'start_temp': [df[col].iloc[0]],
-                    'max_temp': [df[col].max()],
+                    'start_temp': [df[sensor].iloc[0]],
+                    'max_temp': [df[sensor].max()],
                     'time_to_target': [(reach_time['DateTime'] - df['DateTime'].iloc[0]).total_seconds() / 60],
                     'date': [df['DateTime'].iloc[0]]
                 }))
             except IndexError:
-                print(f"{sensor}: target {target_temp} deg C not reached")
                 continue
     return pd.concat(dfs) if dfs else pd.DataFrame()
 
-# 3. Feature engineering
 def create_features(df):
     if df.empty:
         return pd.DataFrame()
+    weather = get_weather()
     features = []
     for _, row in df.iterrows():
-        weather = {'temp': 25.0, 'humidity': 60}
         features.append({
             'sensor': row['sensor'],
             'start_temp': row['start_temp'],
@@ -140,14 +74,10 @@ def create_features(df):
         })
     return pd.DataFrame(features)
 
-# 4. Train model
 def train_model(features):
-    if features.empty:
-        raise ValueError("No training data available")
     features = pd.get_dummies(features, columns=['sensor'])
-    global feature_names
     feature_names = features.drop('time_to_target', axis=1).columns.tolist()
-    X = features.drop('time_to_target', axis=1)
+    X = features[feature_names]
     y = features['time_to_target']
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     model = Pipeline([
@@ -158,89 +88,52 @@ def train_model(features):
     preds = model.predict(X_test)
     print("Model MAE:", round(mean_absolute_error(y_test, preds), 2), "minutes")
     joblib.dump((model, feature_names), MODEL_PATH)
-    return model, feature_names
+    return model
 
-# 5. Predict
 def predict_heating_time(sensor, current_temp):
     model, features = joblib.load(MODEL_PATH)
     weather = get_weather()
+    target = SENSOR_TARGETS[sensor]
+    if current_temp >= target:
+        return 0.0
     input_data = pd.DataFrame({
         'start_temp': [current_temp],
         'ambient_temp': [weather['temp']],
         'humidity': [weather['humidity']],
-        'target_temp': [SENSOR_TARGETS[sensor]],
-        'sensor_WU311': [0],
-        'sensor_WU312': [0],
-        'sensor_WU314': [0],
-        'sensor_WU321': [0],
-        'sensor_WU322': [0],
-        'sensor_WU323': [0]
+        'target_temp': [target],
+        **{f'sensor_{s}': [1 if s == sensor else 0] for s in SENSOR_TARGETS}
     })
-    input_data[f'sensor_{sensor}'] = 1
     final_input = input_data[features]
     return model.predict(final_input)[0]
 
-# 6. Auto-generate requirements.txt and README.md
+def predict_startup_times(current_temp):
+    predictions = []
+    for sensor in SENSOR_TARGETS:
+        time = predict_heating_time(sensor, current_temp)
+        eta = datetime.now() + pd.to_timedelta(time, unit='m')
+        predictions.append([sensor, round(time, 2), eta.strftime("%Y-%m-%d %H:%M")])
+    return predictions
+
 def generate_project_files():
     with open("requirements.txt", "w") as f:
-        f.write("pandas\nnumpy\nscikit-learn\nrequests\njoblib\n")
+        f.write("streamlit\nscikit-learn\npandas\nnumpy\nrequests\njoblib\n")
 
     with open("README.md", "w") as f:
         f.write("""# Oven Heat-Up Time Predictor
 
-This project trains a machine learning model to predict how long an industrial oven sensor will take to reach its target temperature, based on starting temperature, ambient weather, and sensor type.
+Predict how long each oven sensor takes to reach target temperature using ML and weather data.
 
 ## Features
+- CSV parsing and feature engineering
+- Weather API integration
+- Random Forest model training
+- Streamlit dashboard for predictions
 
-- Reads merged oven sensor data from CSV
-- Parses date-time and sensor readings
-- Uses live weather data (temperature, humidity) via WeatherAPI
-- Trains a Random Forest regression model
-- Predicts time-to-target for selected sensor and current oven temperature
-
-## Requirements
-
-See `requirements.txt` for dependencies.
-
-## How to Run
-
-1. Place your merged CSV file at:
-   D:/kanhaiya/Research Data CED OVEN/merged_oven_data.csv
-
-2. Run the script:
-   python main.py
-
-3. Enter current oven temperature and sensor type when prompted.
-
-## Output
-
-- Trained model saved as `oven_time_predictor.pkl`
-- Console output shows predicted time and current weather
+## Setup
+1. Place your CSV in `data/merged_oven_data.csv`
+2. Run `train.py` to train the model
+3. Launch `app.py` to use the dashboard
 
 ## Author
-
 Kanhaiya — Industrial ML workflow builder and automation expert
 """)
-
-# Main
-if __name__ == "__main__":
-    print("Reading CSV file:", CSV_PATH)
-    oven_data = prepare_training_data(CSV_PATH)
-    features = create_features(oven_data)
-    if not features.empty:
-        model, feature_names = train_model(features)
-        generate_project_files()
-    else:
-        raise ValueError("No valid training data could be processed")
-
-    try:
-        current_oven_temp = float(input("Enter current oven temperature in Celsius: "))
-        sensor_type = input("Enter sensor (WU311/WU312/WU314/WU321/WU322/WU323): ").strip().upper()
-        if sensor_type not in SENSOR_TARGETS:
-            raise ValueError("Invalid sensor type")
-        prediction = predict_heating_time(sensor=sensor_type, current_temp=current_oven_temp)
-        weather = get_weather()
-        print("Predicted time to target:", round(prediction + 10, 1), "minutes")
-        print("Current weather in", LOCATION, ":", weather['temp'], "deg C,", weather['humidity'], "% humidity")
-    except Exception as e:
-        print("Prediction error:", str(e))
