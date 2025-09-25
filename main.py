@@ -8,6 +8,20 @@ from sklearn.preprocessing import StandardScaler
 import requests
 import joblib
 from datetime import datetime
+import streamlit as st
+import pandas as pd
+
+st.title("Oven Heat-up Time Predictor")
+
+# Example: Loading CSV
+df = pd.read_csv("./data/merged_oven_data.csv")
+st.write("Data preview:", df.head())
+
+# Example: Button to trigger model training or prediction
+if st.button("Train Model"):
+    st.write("Training started...")
+    # Call your training functions here
+    st.write("Model trained and saved.")
 
 # Configuration
 WEATHER_API_KEY = "18a9e977d32e4a7a8e961308252106"
