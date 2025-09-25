@@ -13,7 +13,7 @@ from datetime import datetime
 WEATHER_API_KEY = "18a9e977d32e4a7a8e961308252106"
 LOCATION = "Pune"
 MODEL_PATH = "oven_time_predictor.pkl"
-CSV_PATH = "D:/kanhaiya/Research Data CED OVEN/merged_oven_data.csv"
+CSV_PATH = "data/merged_oven_data.csv"
 
 # Required columns
 COLUMNS = ['Date', 'Time', 'WU311', 'WU312', 'WU314', 'WU321', 'WU322', 'WU323']
